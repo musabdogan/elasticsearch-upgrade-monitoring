@@ -1,26 +1,73 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --font-sans: var(--font-geist-sans), 'Inter', system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', 'SFMono-Regular', monospace;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --shadow-card: 0 20px 45px -35px rgba(18, 30, 78, 0.6),
+    0 8px 20px -16px rgba(27, 37, 84, 0.35);
+  --shadow-card-dark: 0 30px 60px -35px rgba(0, 0, 0, 0.85),
+    0 12px 32px -16px rgba(15, 23, 42, 0.7);
+  --color-primary: #1b2554;
+  --color-primary-dark: #121e4e;
+  --color-primary-light: #182352;
+  --color-secondary: #192352;
+  --color-accent: #1a2453;
+  --color-text: #232b59;
+  --color-muted: #656a7c;
+  --color-border: #f6f8f9;
+  --color-bg: #f0f3f6;
+  --color-surface: #ffffff;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #06b6d4;
+  --color-grid-line: rgba(27, 37, 84, 0.08);
+}
+
+.dark {
+  color-scheme: dark;
+  --color-text: #f1f5f9;
+  --color-muted: #94a3b8;
+  --color-border: #334155;
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-primary: #93c5fd;
+  --color-primary-dark: #60a5fa;
+  --color-primary-light: #1f2937;
+  --shadow-card: var(--shadow-card-dark);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.45;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button, input, select, textarea {
+  font: inherit;
 }
