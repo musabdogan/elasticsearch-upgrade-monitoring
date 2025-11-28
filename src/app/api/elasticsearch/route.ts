@@ -101,9 +101,17 @@ export async function POST(request: NextRequest) {
       clearTimeout(timeout);
     }
   } catch (error) {
+    let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    
+    // Normalize error messages - convert fetch/network errors to "Network error"
+    if (errorMessage.toLowerCase().includes('fetch') && 
+        (errorMessage.toLowerCase().includes('failed') || errorMessage.toLowerCase().includes('error'))) {
+      errorMessage = 'Network error';
+    }
+    
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
+        error: errorMessage
       },
       { status: 500 }
     );

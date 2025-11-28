@@ -21,7 +21,8 @@ import {
   getClusterHealth,
   getClusterSettings,
   getNodes,
-  getRecovery
+  getRecovery,
+  checkClusterHealth
 } from '@/services/elasticsearch';
 import type {
   CatHealthRow,
@@ -41,8 +42,10 @@ type MonitoringContextValue = {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
+  connectionFailed: boolean;
   lastUpdated: string | null;
   refresh: () => Promise<void>;
+  retryConnection: () => Promise<void>;
   pollInterval: number;
   setPollInterval: (ms: number) => void;
   statusSummary: Record<ClusterStatus, number>;
@@ -81,9 +84,10 @@ function mergeHealthHistory(
 export function MonitoringProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<MonitoringSnapshot | null>(null);
   const [healthHistory, setHealthHistory] = useState<CatHealthRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false so UI loads first
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionFailed, setConnectionFailed] = useState(false);
   const [pollInterval, setPollIntervalState] = useState(() =>
     getStoredValue(POLL_STORAGE_KEY, apiConfig.pollIntervalMs)
   );
@@ -94,6 +98,8 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
     getStoredValue<string>(ACTIVE_CLUSTER_KEY, '')
   );
   const lastUpdatedRef = useRef<string | null>(null);
+  const healthCheckDoneRef = useRef<boolean>(false); // Track if health check has been done
+  const autoRetryIntervalRef = useRef<NodeJS.Timeout | null>(null); // Track auto-retry interval
 
   const activeCluster =
     clusters.find((cluster) => cluster.id === activeClusterId) ?? clusters[0] ?? null;
@@ -115,10 +121,22 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       if (!activeCluster) {
         setError('Please add a cluster to start monitoring.');
         setLoading(false);
+        setRefreshing(false);
+        setConnectionFailed(false);
         return;
       }
+      
+      // Skip if connection already failed - don't retry automatically
+      if (connectionFailed) {
+        return;
+      }
+      
       setRefreshing(true);
       setError(null);
+      setConnectionFailed(false);
+      
+      // Use a ref to track if we've already done health check in this session
+      // This prevents duplicate health check calls
       const [
         allocation,
         recovery,
@@ -129,7 +147,7 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       ] = await Promise.all([
         getAllocation(activeCluster),
         getRecovery(activeCluster),
-        getClusterHealth(activeCluster),
+        getClusterHealth(activeCluster), // This is needed for the snapshot data, not just health check
         getNodes(activeCluster),
         getClusterSettings(activeCluster),
         getCatHealth(activeCluster)
@@ -148,9 +166,47 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
         fetchedAt
       });
       setHealthHistory((prev) => mergeHealthHistory(prev, catHealth));
+      setConnectionFailed(false); // Connection successful
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error occurred';
-      setError(message);
+      let message = err instanceof Error ? err.message : 'Unknown error occurred';
+      
+      // Normalize error messages - convert fetch/network errors to "Network error"
+      if (message.toLowerCase().includes('fetch') && 
+          (message.toLowerCase().includes('failed') || message.toLowerCase().includes('error'))) {
+        message = 'Network error';
+      }
+      
+      // Check if it's a timeout error
+      const isTimeout = err instanceof Error && (
+        err.name === 'AbortError' || 
+        err.name === 'TimeoutError' ||
+        message.toLowerCase().includes('timeout') ||
+        message.toLowerCase().includes('aborted')
+      );
+      
+      // If timeout, immediately do a health check
+      if (isTimeout && activeCluster) {
+        const healthResult = await checkClusterHealth(activeCluster);
+        if (!healthResult.success) {
+          setConnectionFailed(true);
+          setError(healthResult.error || `Network error, cannot access your cluster. Cluster uri: ${activeCluster.baseUrl}`);
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+        // Health check passed, but original request timed out - show timeout error
+        setError(message);
+        setConnectionFailed(false);
+      } else {
+        // For network errors, show cluster URI
+        if (message.toLowerCase().includes('network error') && activeCluster) {
+          setError(`Network error, cannot access your cluster. Cluster uri: ${activeCluster.baseUrl}`);
+        } else {
+          setError(message);
+        }
+        setConnectionFailed(true);
+      }
+      
       // Only show toast for non-mock errors, or if it's a real connection issue
       if (!message.toLowerCase().includes('mock')) {
         toast.error('Data refresh failed', { description: message });
@@ -159,16 +215,127 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeCluster]);
+  }, [activeCluster, connectionFailed]);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  const retryConnection = useCallback(async () => {
+    if (!activeCluster) {
+      return;
+    }
+    
+    // Clear any existing auto-retry interval
+    if (autoRetryIntervalRef.current) {
+      clearInterval(autoRetryIntervalRef.current);
+      autoRetryIntervalRef.current = null;
+    }
+    
+    // Reset health check flag when retrying
+    healthCheckDoneRef.current = false;
+    
+    setLoading(true);
+    setError(null);
+    setConnectionFailed(false);
+    
+    // First check health
+    const healthResult = await checkClusterHealth(activeCluster);
+    
+    if (!healthResult.success) {
+      setConnectionFailed(true);
+      setError(healthResult.error || `Network error, cannot access your cluster. Cluster uri: ${activeCluster.baseUrl}`);
+      setLoading(false);
+      
+      // Start auto-retry every 1 minute (60000ms)
+      autoRetryIntervalRef.current = setInterval(async () => {
+        if (!activeCluster) {
+          if (autoRetryIntervalRef.current) {
+            clearInterval(autoRetryIntervalRef.current);
+            autoRetryIntervalRef.current = null;
+          }
+          return;
+        }
+        
+        const autoHealthResult = await checkClusterHealth(activeCluster);
+        if (autoHealthResult.success) {
+          // Health check passed, stop auto-retry and fetch data
+          if (autoRetryIntervalRef.current) {
+            clearInterval(autoRetryIntervalRef.current);
+            autoRetryIntervalRef.current = null;
+          }
+          setConnectionFailed(false);
+          healthCheckDoneRef.current = true;
+          await fetchAll();
+        }
+      }, 60000); // 1 minute
+      
+      return;
+    }
+    
+    // Health check passed, proceed with full data fetch
+    setConnectionFailed(false);
+    healthCheckDoneRef.current = true;
+    await fetchAll();
+  }, [activeCluster, fetchAll]);
 
+  // Initial load: wait for UI to mount first, then do health check
   useEffect(() => {
-    const interval = setInterval(fetchAll, pollInterval);
+    // Skip if health check already done for this cluster
+    if (healthCheckDoneRef.current) {
+      return;
+    }
+    
+    // Use setTimeout to ensure UI renders first
+    const timer = setTimeout(async () => {
+      if (!activeCluster) {
+        setError('Please add a cluster to start monitoring.');
+        setConnectionFailed(false);
+        return;
+      }
+      
+      // Mark health check as done to prevent duplicate calls
+      healthCheckDoneRef.current = true;
+      
+      // First, do a simple health check
+      setLoading(true);
+      setError(null);
+      const healthResult = await checkClusterHealth(activeCluster);
+      
+      if (!healthResult.success) {
+        setConnectionFailed(true);
+        setError(healthResult.error || `Network error, cannot access your cluster. Cluster uri: ${activeCluster.baseUrl}`);
+        setLoading(false);
+        return;
+      }
+      
+      // Health check passed, proceed with full data fetch
+      setConnectionFailed(false);
+      await fetchAll();
+    }, 100); // Small delay to ensure UI renders first
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCluster]); // Only depend on activeCluster to avoid re-running when fetchAll changes
+
+  // Polling: only start if connection is successful
+  useEffect(() => {
+    if (connectionFailed || !activeCluster) {
+      return; // Don't poll if connection failed or no cluster
+    }
+    
+    const interval = setInterval(() => {
+      fetchAll();
+    }, pollInterval);
+    
     return () => clearInterval(interval);
-  }, [fetchAll, pollInterval]);
+  }, [fetchAll, pollInterval, connectionFailed, activeCluster]);
+
+  // Cleanup auto-retry interval on unmount or cluster change
+  useEffect(() => {
+    return () => {
+      if (autoRetryIntervalRef.current) {
+        clearInterval(autoRetryIntervalRef.current);
+        autoRetryIntervalRef.current = null;
+      }
+    };
+  }, [activeCluster]);
 
   const addCluster = useCallback((input: CreateClusterInput) => {
     const id =
@@ -295,8 +462,10 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       loading,
       refreshing,
       error,
+      connectionFailed,
       lastUpdated: lastUpdatedRef.current,
       refresh: fetchAll,
+      retryConnection,
       pollInterval,
       setPollInterval: (ms: number) => {
         const safeValue = Math.min(Math.max(ms, 3000), 60000);
@@ -308,6 +477,8 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       activeCluster,
       setActiveCluster: (clusterId: string) => {
         setActiveClusterId(clusterId);
+        // Reset health check flag when switching clusters
+        healthCheckDoneRef.current = false;
       },
       addCluster,
       updateCluster,
@@ -322,7 +493,9 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
     loading,
     refreshing,
     error,
+    connectionFailed,
     fetchAll,
+    retryConnection,
     pollInterval,
     clusters,
     activeCluster,

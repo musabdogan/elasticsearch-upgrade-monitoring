@@ -3,7 +3,6 @@
 import { PageHeader } from '@/components/layout/PageHeader';
 import { DataTable } from '@/components/data/DataTable';
 import { ErrorState } from '@/components/feedback/ErrorState';
-import { Skeleton } from '@/components/feedback/Skeleton';
 import { useMonitoring } from '@/context/MonitoringProvider';
 import { formatNumber } from '@/utils/format';
 import { getUpgradeOrderExplanation, calculateUpgradeOrder } from '@/utils/upgradeOrder';
@@ -23,9 +22,10 @@ type AllocationFilter = (typeof allocationFilters)[number]['value'];
 export default function Home() {
   const {
     snapshot,
-    loading,
     error,
+    connectionFailed,
     refresh,
+    retryConnection,
     flushCluster,
     disableShardAllocation,
     stopShardRebalance,
@@ -37,6 +37,15 @@ export default function Home() {
   const [recoveryValue, setRecoveryValue] = useState('');
   const [isUpdatingRecovery, setIsUpdatingRecovery] = useState(false);
   const [showUpgradeOrderInfo, setShowUpgradeOrderInfo] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch by only rendering client-side content after mount
+  useEffect(() => {
+    // Use requestAnimationFrame to ensure this runs after initial render
+    requestAnimationFrame(() => {
+      setMounted(true);
+    });
+  }, []);
   const [showCommandsInfo, setShowCommandsInfo] = useState(false);
   const [showCommandConfirm, setShowCommandConfirm] = useState<{
     type: 'flush' | 'disableAllocation' | 'stopRebalance';
@@ -130,12 +139,29 @@ export default function Home() {
         upgradeOrder: calculateUpgradeOrder(node, null)
       }));
       
-      // Sort by upgrade order
+      // Sort by upgrade order, then by uptime if upgrade order is the same
       const sortedNodes = nodesWithOrder.sort((a, b) => {
         if (a.upgradeOrder === null && b.upgradeOrder === null) return 0;
         if (a.upgradeOrder === null) return 1;
         if (b.upgradeOrder === null) return -1;
-        return (a.upgradeOrder ?? 999) - (b.upgradeOrder ?? 999);
+        
+        const orderDiff = (a.upgradeOrder ?? 999) - (b.upgradeOrder ?? 999);
+        if (orderDiff !== 0) return orderDiff;
+        
+        // If upgrade order is the same, sort by uptime (longer uptime first)
+        const parseUptime = (uptime: string): number => {
+          if (!uptime) return 0;
+          const match = uptime.match(/^([\d.]+)([smhd])$/);
+          if (!match) return 0;
+          const value = parseFloat(match[1]);
+          const unit = match[2];
+          const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+          return value * (multipliers[unit] || 1);
+        };
+        
+        const uptimeA = parseUptime(a.uptime || '0s');
+        const uptimeB = parseUptime(b.uptime || '0s');
+        return uptimeB - uptimeA; // Longer uptime first (descending)
       });
       
       // Calculate sequential upgrade numbers for all nodes
@@ -150,14 +176,30 @@ export default function Home() {
     }
     
     // Original logic for multiple versions
-    // Sort all nodes: upgraded first, then by upgrade order
+    // Sort all nodes: upgraded first, then by upgrade order, then by uptime
+    const parseUptime = (uptime: string): number => {
+      if (!uptime) return 0;
+      const match = uptime.match(/^([\d.]+)([smhd])$/);
+      if (!match) return 0;
+      const value = parseFloat(match[1]);
+      const unit = match[2];
+      const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+      return value * (multipliers[unit] || 1);
+    };
+    
     const sortedNodes = [...snapshot.nodes].sort((a, b) => {
       // Upgraded nodes first
       if (a.upgradeOrder === null && b.upgradeOrder === null) return 0;
       if (a.upgradeOrder === null) return -1;
       if (b.upgradeOrder === null) return 1;
       // Then by upgrade order category
-      return (a.upgradeOrder ?? 999) - (b.upgradeOrder ?? 999);
+      const orderDiff = (a.upgradeOrder ?? 999) - (b.upgradeOrder ?? 999);
+      if (orderDiff !== 0) return orderDiff;
+      
+      // If upgrade order is the same, sort by uptime (longer uptime first)
+      const uptimeA = parseUptime(a.uptime || '0s');
+      const uptimeB = parseUptime(b.uptime || '0s');
+      return uptimeB - uptimeA; // Longer uptime first (descending)
     });
 
     // Calculate sequential upgrade numbers for all nodes
@@ -175,14 +217,44 @@ export default function Home() {
     if (!snapshot || nodesWithSequentialOrder.length === 0) {
       return {};
     }
-    return nodesWithSequentialOrder.reduce((acc, node) => {
+    const grouped = nodesWithSequentialOrder.reduce((acc, node) => {
       const version = node.version || 'Unknown';
       if (!acc[version]) {
         acc[version] = [];
       }
       acc[version].push(node);
       return acc;
-    }, {} as Record<string, typeof nodesWithSequentialOrder>);
+    }, {} as Record<string, Array<NodeInfo & { sequentialOrder: number | null }>>);
+    
+    // Sort nodes within each version group by sequential order, then by uptime
+    const parseUptime = (uptime: string): number => {
+      if (!uptime) return 0;
+      const match = uptime.match(/^([\d.]+)([smhd])$/);
+      if (!match) return 0;
+      const value = parseFloat(match[1]);
+      const unit = match[2];
+      const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+      return value * (multipliers[unit] || 1);
+    };
+    
+    // Sort each version group
+    Object.keys(grouped).forEach(version => {
+      grouped[version].sort((a, b) => {
+        // First by sequential order
+        if (a.sequentialOrder === null && b.sequentialOrder === null) return 0;
+        if (a.sequentialOrder === null) return 1;
+        if (b.sequentialOrder === null) return -1;
+        const orderDiff = (a.sequentialOrder ?? 999) - (b.sequentialOrder ?? 999);
+        if (orderDiff !== 0) return orderDiff;
+        
+        // If sequential order is the same, sort by uptime (longer uptime first)
+        const uptimeA = parseUptime(a.uptime || '0s');
+        const uptimeB = parseUptime(b.uptime || '0s');
+        return uptimeB - uptimeA; // Longer uptime first (descending)
+      });
+    });
+    
+    return grouped;
   }, [snapshot, nodesWithSequentialOrder]);
 
   const recoveryTargetStats = useMemo(() => {
@@ -254,10 +326,7 @@ export default function Home() {
     return { upgraded: upgradedCount, left: leftCount, highestVersion, remainingVersions };
   }, [snapshot, nodesByVersion]);
 
-  if (loading && !snapshot) {
-    return <DashboardSkeleton />;
-  }
-
+  // Always render UI first, API calls happen in background
   const backgroundClass = snapshot?.health.status === 'red'
     ? 'bg-gradient-to-br from-red-50 via-rose-50 to-pink-50 dark:from-red-950 dark:via-rose-950 dark:to-pink-950'
     : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-900 dark:via-blue-900 dark:to-indigo-900';
@@ -266,9 +335,29 @@ export default function Home() {
     <main className={`mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8 ${backgroundClass} min-h-screen`}>
       <PageHeader />
 
-      {error ? <ErrorState message={error} onRetry={refresh} /> : null}
+      {error && !activeCluster ? (
+        <div className="rounded-lg border-2 border-gray-300 bg-white p-6 text-center shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          <p className="text-gray-700 dark:text-gray-300">{error}</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Use the cluster selector in the header to add your first cluster.
+          </p>
+        </div>
+      ) : connectionFailed && error ? (
+        <div className="rounded-lg border-2 border-red-300 bg-red-50 p-6 text-center shadow-lg dark:border-red-700 dark:bg-red-900/20">
+          <p className="text-lg font-semibold text-red-800 dark:text-red-200">{error}</p>
+          <button
+            type="button"
+            onClick={retryConnection}
+            className="mt-4 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Reload
+          </button>
+        </div>
+      ) : error ? (
+        <ErrorState message={error} onRetry={refresh} />
+      ) : null}
 
-      {snapshot ? (
+      {snapshot && !connectionFailed ? (
         <>
           <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div
@@ -917,20 +1006,17 @@ export default function Home() {
           )}
         </>
       ) : null}
+      
+      {!connectionFailed && !snapshot && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <p className="text-gray-600 dark:text-gray-400">
+              {mounted && activeCluster ? 'No data available. Please wait for data to load...' : 'Please add a cluster to start monitoring'}
+            </p>
+          </div>
+        </div>
+      )}
       </main>
   );
 }
 
-function DashboardSkeleton() {
-  return (
-    <main className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-      <Skeleton className="h-24 w-full rounded-lg" />
-      <div className="grid gap-4 lg:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <Skeleton key={index} className="h-48 rounded-lg" />
-        ))}
-    </div>
-      <Skeleton className="h-96 w-full rounded-lg" />
-    </main>
-  );
-}

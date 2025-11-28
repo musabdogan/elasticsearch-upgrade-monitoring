@@ -36,37 +36,69 @@ async function requestFromApi<T>(
 ): Promise<T> {
   try {
     // Use Next.js API route as proxy to avoid CORS issues
-    const response = await fetch('/api/elasticsearch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        endpoint,
-        baseUrl: cluster.baseUrl,
-        username: cluster.username,
-        password: cluster.password
-      }),
-      cache: 'no-store'
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), apiConfig.requestTimeoutMs);
+    
+    try {
+      const response = await fetch('/api/elasticsearch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          endpoint,
+          baseUrl: cluster.baseUrl,
+          username: cluster.username,
+          password: cluster.password
+        }),
+        cache: 'no-store',
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        details?: string;
-      };
-      throw new Error(
-        errorData.error ||
-          `Elasticsearch ${response.status} ${response.statusText} (${endpoint})`
-      );
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          details?: string;
+        };
+        throw new Error(
+          errorData.error ||
+            `Elasticsearch ${response.status} ${response.statusText} (${endpoint})`
+        );
+      }
+
+      const data = (await response.json()) as T;
+      return data;
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        throw new Error('Request timeout');
+      }
+      // Convert fetch errors to network error
+      if (fetchError instanceof TypeError || 
+          (fetchError instanceof Error && (
+            fetchError.message.toLowerCase().includes('fetch') ||
+            fetchError.message.toLowerCase().includes('network') ||
+            fetchError.message.toLowerCase().includes('failed')
+          ))) {
+        throw new Error('Network error');
+      }
+      throw fetchError;
     }
-
-    const data = (await response.json()) as T;
-    return data;
   } catch (error) {
     if (attempt < 2) {
       await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
       return requestFromApi<T>(endpoint, cluster, attempt + 1);
+    }
+    // Convert generic errors to network error if they look like network issues
+    if (error instanceof TypeError || 
+        (error instanceof Error && (
+          error.message.toLowerCase().includes('fetch') ||
+          error.message.toLowerCase().includes('network') ||
+          error.message.toLowerCase().includes('failed')
+        ))) {
+      throw new Error('Network error');
     }
     throw error;
   }
@@ -142,6 +174,52 @@ export async function getClusterHealth(
   cluster: ClusterConnection
 ): Promise<ClusterHealth> {
   return request<ClusterHealth>('clusterHealth', cluster);
+}
+
+/**
+ * Simple health check to verify cluster connectivity
+ * Returns true if cluster is reachable, false otherwise
+ */
+export async function checkClusterHealth(
+  cluster: ClusterConnection
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Use a simple GET request to /_cluster/health endpoint
+    const response = await fetch('/api/elasticsearch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        endpoint: 'clusterHealth',
+        baseUrl: cluster.baseUrl,
+        username: cluster.username,
+        password: cluster.password
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(1000) // 1 second timeout for health check
+    });
+
+    if (response.ok) {
+      return { success: true };
+    }
+
+    // Response not OK
+    const errorData = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      details?: string;
+    };
+    return {
+      success: false,
+      error: errorData.error || `Elasticsearch ${response.status} ${response.statusText}`
+    };
+  } catch {
+    // Network error, timeout, or other connection issue
+    return {
+      success: false,
+      error: `Network error, cannot access your cluster. Cluster uri: ${cluster.baseUrl}`
+    };
+  }
 }
 
 export async function getNodes(cluster: ClusterConnection): Promise<NodeInfo[]> {

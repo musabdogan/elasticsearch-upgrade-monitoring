@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, Edit2, Plus, Server, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMonitoring } from '@/context/MonitoringProvider';
 import type { ClusterConnection, CreateClusterInput } from '@/types/app';
 
@@ -26,6 +26,15 @@ export function ClusterSelector() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch by only rendering client-side content after mount
+  useEffect(() => {
+    // Use requestAnimationFrame to ensure this runs after initial render
+    requestAnimationFrame(() => {
+      setMounted(true);
+    });
+  }, []);
 
   const handleEdit = (cluster: ClusterConnection) => {
     setForm({
@@ -87,7 +96,7 @@ export function ClusterSelector() {
             className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
           >
             <span className="max-w-[120px] truncate">
-              {activeCluster?.label || 'Select cluster'}
+              {mounted ? (activeCluster?.label || 'Select cluster') : 'Select cluster'}
             </span>
             <ChevronDown className="h-3 w-3" />
           </button>
