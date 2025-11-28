@@ -16,6 +16,8 @@ import {
   flushCluster,
   disableShardAllocation,
   stopShardRebalance,
+  enableShardAllocation,
+  enableShardRebalance,
   getAllocation,
   getCatHealth,
   getClusterHealth,
@@ -58,6 +60,8 @@ type MonitoringContextValue = {
   flushCluster: () => Promise<void>;
   disableShardAllocation: () => Promise<void>;
   stopShardRebalance: () => Promise<void>;
+  enableShardAllocation: () => Promise<void>;
+  enableShardRebalance: () => Promise<void>;
 };
 
 const MonitoringContext = createContext<MonitoringContextValue | undefined>(
@@ -302,6 +306,32 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
         setConnectionFailed(true);
         setError(healthResult.error || `Network error, cannot access your cluster. Cluster uri: ${activeCluster.baseUrl}`);
         setLoading(false);
+        
+        // Start auto-retry every 1 minute (60000ms) if initial health check fails
+        if (!autoRetryIntervalRef.current) {
+          autoRetryIntervalRef.current = setInterval(async () => {
+            if (!activeCluster) {
+              if (autoRetryIntervalRef.current) {
+                clearInterval(autoRetryIntervalRef.current);
+                autoRetryIntervalRef.current = null;
+              }
+              return;
+            }
+            
+            const autoHealthResult = await checkClusterHealth(activeCluster);
+            if (autoHealthResult.success) {
+              // Health check passed, stop auto-retry and fetch data
+              if (autoRetryIntervalRef.current) {
+                clearInterval(autoRetryIntervalRef.current);
+                autoRetryIntervalRef.current = null;
+              }
+              setConnectionFailed(false);
+              healthCheckDoneRef.current = true;
+              await fetchAll();
+            }
+          }, 60000); // 1 minute
+        }
+        
         return;
       }
       
@@ -444,6 +474,36 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCluster, fetchAll]);
 
+  const handleEnableShardAllocation = useCallback(async () => {
+    if (!activeCluster) {
+      toast.error('No active cluster', { description: 'Please select a cluster first.' });
+      return;
+    }
+    try {
+      await enableShardAllocation(activeCluster);
+      toast.success('Shard allocation enabled', { description: 'Shard allocation has been enabled for all shards.' });
+      fetchAll();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to enable shard allocation';
+      toast.error('Failed', { description: message });
+    }
+  }, [activeCluster, fetchAll]);
+
+  const handleEnableShardRebalance = useCallback(async () => {
+    if (!activeCluster) {
+      toast.error('No active cluster', { description: 'Please select a cluster first.' });
+      return;
+    }
+    try {
+      await enableShardRebalance(activeCluster);
+      toast.success('Shard rebalance enabled', { description: 'Shard rebalancing has been enabled.' });
+      fetchAll();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to enable shard rebalance';
+      toast.error('Failed', { description: message });
+    }
+  }, [activeCluster, fetchAll]);
+
   const value = useMemo<MonitoringContextValue>(() => {
     const statusSummary: Record<ClusterStatus, number> = {
       green: 0,
@@ -485,7 +545,9 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
       deleteCluster,
       flushCluster: handleFlushCluster,
       disableShardAllocation: handleDisableShardAllocation,
-      stopShardRebalance: handleStopShardRebalance
+      stopShardRebalance: handleStopShardRebalance,
+      enableShardAllocation: handleEnableShardAllocation,
+      enableShardRebalance: handleEnableShardRebalance
     };
   }, [
     snapshot,
@@ -504,7 +566,9 @@ export function MonitoringProvider({ children }: { children: ReactNode }) {
     deleteCluster,
     handleFlushCluster,
     handleDisableShardAllocation,
-    handleStopShardRebalance
+    handleStopShardRebalance,
+    handleEnableShardAllocation,
+    handleEnableShardRebalance
   ]);
 
   return (

@@ -371,3 +371,75 @@ export async function stopShardRebalance(cluster: ClusterConnection): Promise<vo
   }
 }
 
+export async function enableShardAllocation(cluster: ClusterConnection): Promise<void> {
+  try {
+    const response = await fetch('/api/elasticsearch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        baseUrl: cluster.baseUrl,
+        username: cluster.username,
+        password: cluster.password,
+        method: 'PUT',
+        customPath: '/_cluster/settings',
+        body: JSON.stringify({
+          persistent: {
+            'cluster.routing.allocation.enable': 'all'
+          }
+        })
+      }),
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        details?: string;
+      };
+      throw new Error(
+        errorData.error || `Enable shard allocation failed: ${response.status} ${response.statusText}`
+      );
+    }
+  } catch (error) {
+    throw error;
+  }
+}
+
+export async function enableShardRebalance(cluster: ClusterConnection): Promise<void> {
+  try {
+    const response = await fetch('/api/elasticsearch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        baseUrl: cluster.baseUrl,
+        username: cluster.username,
+        password: cluster.password,
+        method: 'PUT',
+        customPath: '/_cluster/settings',
+        body: JSON.stringify({
+          persistent: {
+            'cluster.routing.rebalance.enable': 'all'
+          }
+        })
+      }),
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        details?: string;
+      };
+      throw new Error(
+        errorData.error || `Enable shard rebalance failed: ${response.status} ${response.statusText}`
+      );
+    }
+  } catch (error) {
+    throw error;
+  }
+}
+

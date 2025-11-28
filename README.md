@@ -42,7 +42,7 @@ A real-time monitoring dashboard for Elasticsearch cluster upgrades. Track node 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/elasticsearch-upgrade-monitoring.git
+git clone https://github.com/musabdogan/elasticsearch-upgrade-monitoring.git
 cd elasticsearch-upgrade-monitoring
 ```
 
@@ -51,22 +51,12 @@ cd elasticsearch-upgrade-monitoring
 npm install
 ```
 
-3. Configure environment variables (optional):
-```bash
-cp .env.example .env.local
-```
-
-Available environment variables:
-- `NEXT_PUBLIC_POLL_INTERVAL_MS`: Polling interval in milliseconds (default: 5000)
-- `NEXT_PUBLIC_REQUEST_TIMEOUT_MS`: Request timeout in milliseconds (default: 8000)
-- `NEXT_PUBLIC_USE_MOCK`: Enable mock data mode (default: false)
-
-4. Run the development server:
+3. Run the development server:
 ```bash
 npm run dev
 ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Usage
 

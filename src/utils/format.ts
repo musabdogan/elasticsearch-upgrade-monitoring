@@ -1,17 +1,7 @@
-import { formatDistanceToNow } from 'date-fns';
-import { enUS } from 'date-fns/locale';
 import type { ClusterStatus } from '@/types/api';
 
 export function formatNumber(value: number): string {
-  return Intl.NumberFormat('tr-TR').format(value);
-}
-
-export function formatPercent(value: number, fractionDigits = 1): string {
-  return `${value.toFixed(fractionDigits)}%`;
-}
-
-export function formatRelative(dateIso: string): string {
-  return formatDistanceToNow(new Date(dateIso), { addSuffix: true, locale: enUS });
+  return Intl.NumberFormat('en-US').format(value);
 }
 
 export function statusToColor(status: ClusterStatus): string {

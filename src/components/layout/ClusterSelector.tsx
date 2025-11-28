@@ -92,7 +92,15 @@ export function ClusterSelector() {
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowDropdown(!showDropdown)}
+            onClick={() => {
+              // If no clusters exist, show add form directly
+              if (clusters.length === 0) {
+                setShowForm(true);
+                setShowDropdown(false);
+              } else {
+                setShowDropdown(!showDropdown);
+              }
+            }}
             className="flex items-center gap-1.5 rounded border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
           >
             <span className="max-w-[120px] truncate">

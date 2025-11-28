@@ -29,6 +29,8 @@ export default function Home() {
     flushCluster,
     disableShardAllocation,
     stopShardRebalance,
+    enableShardAllocation,
+    enableShardRebalance,
     activeCluster
   } = useMonitoring();
   const [allocationFilter, setAllocationFilter] = useState<AllocationFilter>('all');
@@ -37,18 +39,9 @@ export default function Home() {
   const [recoveryValue, setRecoveryValue] = useState('');
   const [isUpdatingRecovery, setIsUpdatingRecovery] = useState(false);
   const [showUpgradeOrderInfo, setShowUpgradeOrderInfo] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  // Prevent hydration mismatch by only rendering client-side content after mount
-  useEffect(() => {
-    // Use requestAnimationFrame to ensure this runs after initial render
-    requestAnimationFrame(() => {
-      setMounted(true);
-    });
-  }, []);
   const [showCommandsInfo, setShowCommandsInfo] = useState(false);
   const [showCommandConfirm, setShowCommandConfirm] = useState<{
-    type: 'flush' | 'disableAllocation' | 'stopRebalance';
+    type: 'flush' | 'disableAllocation' | 'stopRebalance' | 'enableAllocation' | 'enableRebalance';
     command: string;
     description: string;
     action: () => Promise<void>;
@@ -579,49 +572,93 @@ export default function Home() {
                       <Info className="h-3 w-3" />
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowCommandConfirm({
-                          type: 'flush',
-                          command: 'POST /_flush',
-                          description: 'Forces a flush of one or more indices, writing data from memory to disk and clearing the transaction log. This makes data persistent and optimizes memory usage.',
-                          action: flushCluster
-                        });
-                      }}
-                      className="rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800 hover:shadow-lg active:from-blue-800 active:to-blue-900"
-                    >
-                      Flush Cluster
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowCommandConfirm({
-                          type: 'disableAllocation',
-                          command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.allocation.enable": "primaries"\n  }\n}',
-                          description: 'Disables shard allocation for primary shards. Only primary shards will be allocated, replica shards will not be allocated.',
-                          action: disableShardAllocation
-                        });
-                      }}
-                      className="rounded-lg bg-gradient-to-r from-orange-600 to-orange-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-orange-700 hover:to-orange-800 hover:shadow-lg active:from-orange-800 active:to-orange-900"
-                    >
-                      Disable shard allocation for primary shards
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowCommandConfirm({
-                          type: 'stopRebalance',
-                          command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.rebalance.enable": "none"\n  }\n}',
-                          description: 'Disables shard rebalancing across nodes. No shards will be rebalanced until this setting is changed.',
-                          action: stopShardRebalance
-                        });
-                      }}
-                      className="rounded-lg bg-gradient-to-r from-red-600 to-red-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-red-700 hover:to-red-800 hover:shadow-lg active:from-red-800 active:to-red-900"
-                    >
-                      Disable shard rebalance
-                    </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Before Upgrade Column */}
+                    <div className="rounded-lg border border-gray-200 bg-white/50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
+                      <h3 className="mb-1.5 text-[10px] font-semibold text-gray-900 dark:text-gray-100">
+                        Before Upgrade
+                      </h3>
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCommandConfirm({
+                              type: 'flush',
+                              command: 'POST /_flush',
+                              description: 'Forces a flush of one or more indices, writing data from memory to disk and clearing the transaction log. This makes data persistent and optimizes memory usage.',
+                              action: flushCluster
+                            });
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800 hover:shadow-lg active:from-blue-800 active:to-blue-900"
+                        >
+                          Flush Cluster
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCommandConfirm({
+                              type: 'disableAllocation',
+                              command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.allocation.enable": "primaries"\n  }\n}',
+                              description: 'Disables shard allocation for primary shards. Only primary shards will be allocated, replica shards will not be allocated.',
+                              action: disableShardAllocation
+                            });
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-orange-600 to-orange-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-orange-700 hover:to-orange-800 hover:shadow-lg active:from-orange-800 active:to-orange-900"
+                        >
+                          Disable shard allocation
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCommandConfirm({
+                              type: 'stopRebalance',
+                              command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.rebalance.enable": "none"\n  }\n}',
+                              description: 'Disables shard rebalancing across nodes. No shards will be rebalanced until this setting is changed.',
+                              action: stopShardRebalance
+                            });
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-red-600 to-red-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-red-700 hover:to-red-800 hover:shadow-lg active:from-red-800 active:to-red-900"
+                        >
+                          Disable shard rebalance
+                        </button>
+                      </div>
+                    </div>
+                    {/* After Upgrade Column */}
+                    <div className="rounded-lg border border-gray-200 bg-white/50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
+                      <h3 className="mb-1.5 text-[10px] font-semibold text-gray-900 dark:text-gray-100">
+                        After Upgrade
+                      </h3>
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCommandConfirm({
+                              type: 'enableAllocation',
+                              command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.allocation.enable": "all"\n  }\n}',
+                              description: 'Enables shard allocation for all shards (both primary and replica). This should be done after upgrading nodes.',
+                              action: enableShardAllocation
+                            });
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-green-600 to-green-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-green-700 hover:to-green-800 hover:shadow-lg active:from-green-800 active:to-green-900"
+                        >
+                          Enable shard allocation
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCommandConfirm({
+                              type: 'enableRebalance',
+                              command: 'PUT /_cluster/settings\n{\n  "persistent": {\n    "cluster.routing.rebalance.enable": "all"\n  }\n}',
+                              description: 'Enables shard rebalancing across nodes. This allows Elasticsearch to automatically rebalance shards for optimal distribution.',
+                              action: enableShardRebalance
+                            });
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-teal-600 to-teal-700 px-2.5 py-1 text-[10px] font-semibold text-white shadow-md transition hover:from-teal-700 hover:to-teal-800 hover:shadow-lg active:from-teal-800 active:to-teal-900"
+                        >
+                          Enable shard rebalance
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -774,37 +811,77 @@ export default function Home() {
                 <div className="space-y-4">
                   <div>
                     <h4 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      Flush Cluster
+                      Before Upgrade
                     </h4>
-                    <pre className="rounded-lg bg-gray-50 p-4 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono">
+                    <div className="space-y-3">
+                      <div>
+                        <h5 className="mb-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                          Flush Cluster
+                        </h5>
+                        <pre className="rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono">
 {`POST /_flush`}
-                    </pre>
-                  </div>
-                  <div>
-                    <h4 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      Disable shard allocation for primary shards
-                    </h4>
-                    <pre className="rounded-lg bg-gray-50 p-4 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
+                        </pre>
+                      </div>
+                      <div>
+                        <h5 className="mb-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                          Disable shard allocation
+                        </h5>
+                        <pre className="rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
 {`PUT /_cluster/settings
 {
   "persistent": {
     "cluster.routing.allocation.enable": "primaries"
   }
 }`}
-                    </pre>
-                  </div>
-                  <div>
-                    <h4 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      Disable shard rebalance
-                    </h4>
-                    <pre className="rounded-lg bg-gray-50 p-4 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
+                        </pre>
+                      </div>
+                      <div>
+                        <h5 className="mb-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                          Disable shard rebalance
+                        </h5>
+                        <pre className="rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
 {`PUT /_cluster/settings
 {
   "persistent": {
     "cluster.routing.rebalance.enable": "none"
   }
 }`}
-                    </pre>
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      After Upgrade
+                    </h4>
+                    <div className="space-y-3">
+                      <div>
+                        <h5 className="mb-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                          Enable shard allocation
+                        </h5>
+                        <pre className="rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
+{`PUT /_cluster/settings
+{
+  "persistent": {
+    "cluster.routing.allocation.enable": "all"
+  }
+}`}
+                        </pre>
+                      </div>
+                      <div>
+                        <h5 className="mb-1 text-xs font-medium text-gray-800 dark:text-gray-200">
+                          Enable shard rebalance
+                        </h5>
+                        <pre className="rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-mono whitespace-pre-wrap">
+{`PUT /_cluster/settings
+{
+  "persistent": {
+    "cluster.routing.rebalance.enable": "all"
+  }
+}`}
+                        </pre>
+                      </div>
+                    </div>
                   </div>
                   <div className="flex justify-end">
                     <button
@@ -1006,16 +1083,6 @@ export default function Home() {
           )}
         </>
       ) : null}
-      
-      {!connectionFailed && !snapshot && (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <p className="text-gray-600 dark:text-gray-400">
-              {mounted && activeCluster ? 'No data available. Please wait for data to load...' : 'Please add a cluster to start monitoring'}
-            </p>
-          </div>
-        </div>
-      )}
       </main>
   );
 }
