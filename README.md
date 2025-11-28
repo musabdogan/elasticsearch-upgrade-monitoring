@@ -2,6 +2,8 @@
 
 A real-time monitoring dashboard for Elasticsearch cluster upgrades. Track node versions, shard recovery status, disk allocation, cluster health, and get upgrade order recommendations. Includes ready-to-use cluster management commands.
 
+![Dashboard Screenshot](./screenshot.png)
+
 ## Features
 
 - **Real-time Monitoring**: Live polling of cluster status, node versions, shard recovery, and allocation
