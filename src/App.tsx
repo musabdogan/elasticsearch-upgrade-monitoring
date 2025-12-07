@@ -10,15 +10,6 @@ import { useMemo, useState, useEffect } from 'react';
 import { Settings, Info } from 'lucide-react';
 import { updateRecoverySetting } from '@/services/elasticsearch';
 
-const allocationFilters = [
-  { label: 'All', value: 'all' },
-  { label: 'Hot', value: 'hot' },
-  { label: 'Warm', value: 'warm' },
-  { label: 'Cold', value: 'cold' }
-] as const;
-
-type AllocationFilter = (typeof allocationFilters)[number]['value'];
-
 export default function App() {
   const {
     snapshot,
@@ -33,7 +24,6 @@ export default function App() {
     enableShardRebalance,
     activeCluster
   } = useMonitoring();
-  const [allocationFilter, setAllocationFilter] = useState<AllocationFilter>('all');
   const [settingsSearch, setSettingsSearch] = useState('');
   const [showRecoverySettings, setShowRecoverySettings] = useState(false);
   const [recoveryValue, setRecoveryValue] = useState('');
@@ -66,11 +56,8 @@ export default function App() {
 
   const filteredAllocation = useMemo(() => {
     if (!snapshot) return [];
-    if (allocationFilter === 'all') return snapshot.allocation;
-    return snapshot.allocation.filter((row) =>
-      row.node.toLowerCase().includes(allocationFilter)
-    );
-  }, [snapshot, allocationFilter]);
+    return snapshot.allocation;
+  }, [snapshot]);
 
   const filteredSettings = useMemo(() => {
     if (!snapshot) return [];
@@ -468,11 +455,47 @@ export default function App() {
                           key: 'nodeRole',
                           header: 'Role',
                           sortable: true,
-                          render: (node: NodeInfo & { sequentialOrder: number | null }) => (
-                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                              {node.nodeRole}
-                            </span>
-                          )
+                          render: (node: NodeInfo & { sequentialOrder: number | null }) => {
+                            const roleDescriptions: Record<string, string> = {
+                              'f': 'frozen node',
+                              'c': 'cold node',
+                              'w': 'warm node',
+                              'h': 'hot node',
+                              'd': 'data node',
+                              'l': 'machine learning node',
+                              'i': 'ingest node',
+                              't': 'transform node',
+                              's': 'content node',
+                              'r': 'remote cluster client node',
+                              'm': 'master-eligible node',
+                              'v': 'voting-only master node'
+                            };
+                            
+                            // Extract unique roles, filter only known roles, and sort them alphabetically
+                            const uniqueRoles = [...new Set(node.nodeRole.split(''))];
+                            const rolesWithDesc = uniqueRoles
+                              .map(char => {
+                                const desc = roleDescriptions[char.toLowerCase()];
+                                if (desc) {
+                                  return { char, desc };
+                                }
+                                return null;
+                              })
+                              .filter((item): item is { char: string; desc: string } => item !== null)
+                              .sort((a, b) => a.char.localeCompare(b.char))
+                              .map(item => `${item.char} = ${item.desc}`);
+                            
+                            const tooltip = rolesWithDesc.length > 0 ? rolesWithDesc.join('\n') : node.nodeRole;
+                            
+                            return (
+                              <span 
+                                className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                title={tooltip}
+                              >
+                                {node.nodeRole}
+                              </span>
+                            );
+                          }
                         },
                         { key: 'name', header: 'Name', sortable: true },
                         { key: 'ip', header: 'IP', sortable: true },
@@ -501,17 +524,6 @@ export default function App() {
                 <h2 className="text-xs font-bold text-gray-900 dark:text-gray-100">
                   Allocation & Disk
                 </h2>
-                <select
-                  value={allocationFilter}
-                  onChange={(event) => setAllocationFilter(event.target.value as AllocationFilter)}
-                  className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                >
-                  {allocationFilters.map((filter) => (
-                    <option key={filter.value} value={filter.value}>
-                      {filter.label}
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="flex-1 overflow-y-auto min-h-0 mb-2">
                 <DataTable<CatAllocationRow>

@@ -7,6 +7,7 @@ export interface CatAllocationRow {
   diskAvail: string;
   node: string;
   ip?: string;
+  tier?: string;
 }
 
 export interface RecoveryRow {
@@ -46,6 +47,7 @@ export interface NodeInfo {
   version: string;
   uptime: string;
   upgradeOrder?: number | null;
+  tier?: string;
 }
 
 export interface ClusterSettings {

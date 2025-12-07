@@ -207,6 +207,7 @@ export async function getNodes(cluster: ClusterConnection): Promise<NodeInfo[]> 
       ip?: string;
       version: string;
       uptime: string;
+      'attr.data'?: string;
     }>
   >('nodes', cluster);
   
@@ -221,6 +222,29 @@ export async function getNodes(cluster: ClusterConnection): Promise<NodeInfo[]> 
       version: row.version,
       uptime: row.uptime
     };
+    
+    // Extract tier from attr.data
+    // attr.data can be: hot, warm, cold, frozen, or data (if no tier)
+    const dataAttr = row['attr.data'];
+    if (dataAttr) {
+      // Check if it's a tier (hot, warm, cold, frozen) or just "data"
+      const tier = dataAttr.toLowerCase();
+      if (['hot', 'warm', 'cold', 'frozen'].includes(tier)) {
+        nodeInfo.tier = tier;
+      } else if (tier === 'data') {
+        // If it's just "data", check node role for tier hint
+        // Data nodes without explicit tier are typically "data"
+        nodeInfo.tier = 'data';
+      }
+    }
+    
+    // If no tier found, check node role
+    if (!nodeInfo.tier) {
+      const role = row['node.role'].toLowerCase();
+      if (role.includes('d') || role.includes('data')) {
+        nodeInfo.tier = 'data';
+      }
+    }
     
     nodeInfo.upgradeOrder = calculateUpgradeOrder(nodeInfo, highestVersion);
     
